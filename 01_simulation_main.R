@@ -71,10 +71,18 @@ gen_rep <- function(seed) {
   set.seed(seed)
   theo <- seq(0, TMAX, by = EVERY)
   tlist <- vector("list", N); blist <- vector("list", N)
+  t2list <- vector("list", N)
+  ## nominal times for Dataset 2, equally spaced on [0,1]
+  theo2 <- seq(0, 1, length.out = length(theo))
+  JIT2  <- JIT / TMAX                       # jitter scaled to the [0,1] domain
   for (i in seq_len(N)) {
     blist[[i]] <- rnorm(4, 0, SD_B)
+    ## Dataset 1 times on [0, TMAX]
     tij <- theo + runif(length(theo), -JIT, JIT)
     tlist[[i]] <- sort(pmin(pmax(tij, 0), TMAX))
+    ## Dataset 2 times generated independently on [0, 1]
+    t2 <- theo2 + runif(length(theo2), -JIT2, JIT2)
+    t2list[[i]] <- sort(pmin(pmax(t2, 0), 1))
   }
   ds1 <- do.call(rbind, lapply(seq_len(N), function(i) {
     t <- tlist[[i]]; ys <- traj1(t, blist[[i]])
@@ -82,7 +90,7 @@ gen_rep <- function(seed) {
                y = ys + rnorm(length(t), 0, SD_EPS1)) }))
   xis <- rnorm(N, 0, SD_XI)
   ds2 <- do.call(rbind, lapply(seq_len(N), function(i) {
-    t01 <- tlist[[i]] / TMAX
+    t01 <- t2list[[i]]                      # own times on [0,1], not DS1/TMAX
     ft  <- mu_true(t01) + xis[i] * phi_true(t01)
     data.frame(id = i, time = t01, truth = ft,
                y = ft + rnorm(length(t01), 0, SD_EPS2)) }))
@@ -236,15 +244,35 @@ el <- as.numeric(difftime(Sys.time(), t0, units = "mins"))
 cat(sprintf("Finished in %.1f min (%.2f min/rep).\n", el, el / R_REPS))
 
 raw <- do.call(rbind, Filter(Negate(is.null), reps))
-saveRDS(raw, "mc_raw_replications.rds")
+saveRDS(raw, "mc_raw_replications_all.rds")   # includes DS1 explosions
 cat(sprintf("Collected %d rows from %d replications.\n",
             nrow(raw), length(unique(raw$rep))))
 
 ## ===========================================================================
+## 6b. Remove exploded Dataset 1 replications
+##     For extreme random-effect draws the logistic form (3.1) overflows and the
+##     reconstruction error becomes astronomically large; such rows are dropped
+##     from Dataset 1 before aggregation so a few pathological draws do not
+##     dominate the mean. (Dataset 2 has no such issue.)
+## ===========================================================================
+EXPLODE <- 500
+n_before <- sum(raw$dataset == "DS1")
+bad <- raw$dataset == "DS1" & (!is.finite(raw$ise_recon) | raw$ise_recon > EXPLODE)
+raw <- raw[!bad, ]
+cat(sprintf("Removed %d exploded Dataset 1 rows (ise_recon > %d).\n",
+            sum(bad), EXPLODE))
+## report how many clean reps remain per DS1 scenario
+ds1n <- table(raw$scenario[raw$dataset == "DS1"])
+cat("Clean DS1 replications per scenario (min):", min(ds1n), "\n")
+
+saveRDS(raw, "mc_raw_replications.rds")
+
+## ===========================================================================
 ## 7. Aggregate ISE -> MISE (mean over reps) + Monte Carlo SE
 ## ===========================================================================
-agg <- function(x) c(mean(x, na.rm = TRUE),
-                     sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x))))
+agg <- function(x) { x <- x[is.finite(x)]
+  if (length(x) == 0) return(c(NA, NA))
+  c(mean(x), sd(x) / sqrt(length(x))) }
 summ <- do.call(rbind, lapply(
   split(raw, list(raw$dataset, raw$scenario), drop = TRUE), function(d) {
     a_rec <- agg(d$ise_recon); a_o <- agg(d$ise_obs); a_m <- agg(d$ise_miss)
