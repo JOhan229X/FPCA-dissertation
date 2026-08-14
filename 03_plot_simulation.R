@@ -7,94 +7,115 @@
 ## Output: fig_mise_recon_final.png
 ###############################################################################
 
-raw <- readRDS("mc_raw_replications.rds")
-
-## baseline (no-missingness) reconstruction MISE from fpca_baseline_serial.R
-BASE <- c(DS1 = 30.0, DS2 = 1.11)
-
-mechs <- c("mcar", "thr_mar", "inc_mar", "thr_mnar", "inc_mnar")
-labs  <- c("MCAR", "Threshold\nMAR", "Increasing\nMAR",
-           "Threshold\nMNAR", "Increasing\nMNAR")
-class <- c("MCAR", "MAR", "MAR", "MNAR", "MNAR")
-cols  <- c(MCAR = "#4a8f6d", MAR = "#2A6F97", MNAR = "#BC4749")
-pcol  <- cols[class]
-
+raw  <- readRDS("mc_raw_replications.rds")
+BASE <- c(DS1 = 30.1, DS2 = 1.11)     # no-missingness baseline (02_baseline.R)
+ 
+## x-axis order: baseline first, calibrated mechanisms in the middle, fixed last
+xorder <- c("mcar", "thr_mar", "inc_mar", "thr_mnar", "inc_mnar")
+xlabs  <- c("no\nmissing", "MCAR", "Threshold\nMAR", "Increasing\nMAR",
+            "Threshold\nMNAR", "Increasing\nMNAR", "Fixed\nMAR")
+ 
 val <- function(ds, scen) {
   x <- raw$ise_recon[raw$dataset == ds & raw$scenario == scen]
   x <- x[is.finite(x)]; if (length(x) == 0) NA else mean(x)
 }
-
+ 
 png("fig_mise_recon_final.png", width = 12, height = 5.4, units = "in", res = 300)
 op <- par(mfrow = c(1, 2), mar = c(5, 5, 3, 1.5), oma = c(0, 0, 3.2, 0))
 ds_ids   <- c("DS1", "DS2")
 ds_title <- c("Dataset 1  (truth = mixed model)", "Dataset 2  (truth = FPCA)")
-
+ 
 for (j in 1:2) {
-  ds  <- ds_ids[j]
-  v30 <- sapply(mechs, function(m) val(ds, sprintf("%s_30", m)))
-  v60 <- sapply(mechs, function(m) val(ds, sprintf("%s_60", m)))
-  fm  <- val(ds, "fixed_mar_det")
-  base <- BASE[[ds]]
-
-  ylim <- range(c(v30, v60, fm, base), na.rm = TRUE)
-  ylim[1] <- min(ylim[1], base) - 0.05 * diff(ylim)
-  ylim[2] <- ylim[2] + 0.15 * diff(ylim)
-
-  plot(NULL, xlim = c(0.7, 5.3), ylim = ylim, xaxt = "n",
+  ds <- ds_ids[j]
+  ## build the sequence of 7 points in x-order
+  mid30 <- sapply(xorder, function(m) val(ds, sprintf("%s_30", m)))
+  mid60 <- sapply(xorder, function(m) val(ds, sprintf("%s_60", m)))
+  fm    <- val(ds, "fixed_mar_det")
+  base  <- BASE[[ds]]
+  y30 <- c(base, mid30, fm)     # baseline, 5 mechanisms at 30%, fixed
+  y60 <- c(base, mid60, fm)     # baseline, 5 mechanisms at 60%, fixed
+  x   <- seq_along(xlabs)       # 1..7
+ 
+  ## y-limits: include everything, but check compression. If fixed/baseline are
+  ## extreme, the middle still shows because the line + points span the range.
+  ylim <- range(c(y30, y60), na.rm = TRUE)
+  ylim[2] <- ylim[2] + 0.12 * diff(ylim)
+ 
+  plot(NULL, xlim = c(0.7, 7.3), ylim = ylim, xaxt = "n",
        xlab = "", ylab = "MISE (reconstruction)", main = ds_title[j])
-  axis(1, at = 1:5, labels = labs, cex.axis = 0.8, padj = 0.5)
+  axis(1, at = x, labels = xlabs, cex.axis = 0.72, padj = 0.5)
   grid(nx = NA, ny = NULL, col = "grey90")
-  rect(3.5, ylim[1], 5.4, ylim[2], col = adjustcolor("#BC4749", 0.05), border = NA)
-  text(4.5, ylim[2] - 0.08 * diff(ylim), "MNAR",
-       col = adjustcolor("#BC4749", 0.7), cex = 0.85)
-
-  ## baseline (no missing) reference line, bottom
-  abline(h = base, lty = 4, lwd = 1.3, col = "#4a8f6d")
-  text(0.75, base, sprintf("no missing = %.1f", base),
-       adj = c(0, -0.3), cex = 0.6, col = "#4a8f6d")
-  ## fixed MAR reference line, top
-  abline(h = fm, lty = 3, col = "grey55")
-  text(5.3, fm, sprintf("fixed MAR = %.1f", fm),
-       adj = c(1, -0.3), cex = 0.6, col = "grey40")
-
-  lines(1:5, v30, lty = 1, lwd = 1.5, col = "grey45")
-  lines(1:5, v60, lty = 2, lwd = 1.5, col = "grey45")
-  points(1:5, v30, pch = 16, col = pcol, cex = 1.5)
-  points(1:5, v60, pch = 15, col = pcol, cex = 1.5)
-
+ 
+  ## shade the MNAR region (positions 5-6)
+  rect(4.5, ylim[1], 6.5, ylim[2], col = adjustcolor("#BC4749", 0.05), border = NA)
+ 
+  ## connect all seven points with a line so the trend is visible
+  lines(x, y30, lty = 1, lwd = 1.6, col = "grey45")
+  lines(x, y60, lty = 2, lwd = 1.6, col = "grey45")
+ 
+  ## colour points by class: baseline (green), MCAR (teal), MAR (blue),
+  ## MNAR (red), fixed (grey)
+  pcol <- c("#4a8f6d", "#4a8f6d", "#2A6F97", "#2A6F97",
+            "#BC4749", "#BC4749", "#777777")
+  points(x, y30, pch = 16, col = pcol, cex = 1.5)
+  points(x, y60, pch = 15, col = pcol, cex = 1.5)
+ 
   legend("topleft", bty = "n", cex = 0.72,
-         legend = c("dropout 30%", "dropout 60%", "no missing", "fixed MAR"),
-         pch = c(16, 15, NA, NA), lty = c(1, 2, 4, 3),
-         col = c("grey45", "grey45", "#4a8f6d", "grey55"))
+         legend = c("dropout 30%", "dropout 60%"),
+         pch = c(16, 15), lty = c(1, 2), col = "grey45")
 }
 mtext("Reconstruction MISE across mechanisms (100 replications, FVE 99%)",
       side = 3, line = 0.6, outer = TRUE, font = 2, cex = 1.15)
-par(op)
-dev.off()
-cat("saved fig_mise_recon_final.png (with baseline line)\n")
+par(op); dev.off()
+cat("saved fig_mise_recon_final.png (connected trend, baseline -> fixed)\n")
+ 
 ###############################################################################
-
-###############################################################################
-## Second figure: MISE of the estimated mean and first eigenfunction (DS2).
-## Reads mc_summary.rds (from 01_simulation_main.R). Output: fig_mise_components.png
+## Second figure: MISE of the mean and first eigenfunction (Dataset 2),
+## drawn as connected trends to match the reconstruction figure.
 ###############################################################################
 summ <- readRDS("mc_summary.rds")
-d2 <- summ[summ$dataset == "DS2" & summ$scenario != "fixed_mar_det", ]
-
-ord <- c("mcar_30","mcar_60","thr_mar_30","thr_mar_60","inc_mar_30","inc_mar_60",
-         "thr_mnar_30","thr_mnar_60","inc_mnar_30","inc_mnar_60")
-d2 <- d2[match(ord, d2$scenario), ]
-labs2 <- c("MCAR 30","MCAR 60","thrMAR 30","thrMAR 60","incMAR 30","incMAR 60",
-           "thrMNAR 30","thrMNAR 60","incMNAR 30","incMNAR 60")
-
-png("fig_mise_components.png", width = 12, height = 5, units = "in", res = 300)
-op <- par(mfrow = c(1, 2), mar = c(7, 4.5, 3, 1))
-barplot(d2$MISE_mu, names.arg = labs2, las = 2, col = "#4a8f6d",
-        ylab = expression("MISE of " * hat(mu)), main = "Mean function",
-        cex.names = 0.7)
-barplot(d2$MISE_phi, names.arg = labs2, las = 2, col = "#2A6F97",
-        ylab = expression("MISE of " * hat(phi)[1]), main = "First eigenfunction",
-        cex.names = 0.7)
+ 
+## baseline mu/phi from 02_baseline.R (no-missingness); edit if yours differ
+BASE_MU  <- 0.578
+BASE_PHI <- 0.067
+ 
+xorder <- c("mcar", "thr_mar", "inc_mar", "thr_mnar", "inc_mnar")
+xlabs  <- c("no\nmissing", "MCAR", "Threshold\nMAR", "Increasing\nMAR",
+            "Threshold\nMNAR", "Increasing\nMNAR")
+pcol   <- c("#4a8f6d", "#4a8f6d", "#2A6F97", "#2A6F97", "#BC4749", "#BC4749")
+ 
+getv <- function(scen, col) {
+  v <- summ[summ$dataset == "DS2" & summ$scenario == scen, col]
+  if (length(v) == 0) NA else v[1]
+}
+ 
+png("fig_mise_components.png", width = 12, height = 5.2, units = "in", res = 300)
+op <- par(mfrow = c(1, 2), mar = c(5, 5, 3, 1.2))
+ 
+for (comp in c("MISE_mu", "MISE_phi")) {
+  base <- if (comp == "MISE_mu") BASE_MU else BASE_PHI
+  y30 <- c(base, sapply(xorder, function(m) getv(sprintf("%s_30", m), comp)))
+  y60 <- c(base, sapply(xorder, function(m) getv(sprintf("%s_60", m), comp)))
+  x   <- seq_along(xlabs)
+  ylim <- range(c(y30, y60), na.rm = TRUE); ylim[2] <- ylim[2] + 0.12*diff(ylim)
+  ylab <- if (comp == "MISE_mu") expression("MISE of " * hat(mu))
+          else                    expression("MISE of " * hat(phi)[1])
+  ttl  <- if (comp == "MISE_mu") "Mean function" else "First eigenfunction"
+ 
+  plot(NULL, xlim = c(0.7, 6.3), ylim = ylim, xaxt = "n",
+       xlab = "", ylab = ylab, main = ttl)
+  axis(1, at = x, labels = xlabs, cex.axis = 0.72, padj = 0.5)
+  grid(nx = NA, ny = NULL, col = "grey90")
+  rect(4.5, ylim[1], 6.5, ylim[2], col = adjustcolor("#BC4749", 0.05), border = NA)
+  pcol7 <- c("#4a8f6d", pcol)
+  lines(x, y30, lty = 1, lwd = 1.6, col = "grey45")
+  lines(x, y60, lty = 2, lwd = 1.6, col = "grey45")
+  points(x, y30, pch = 16, col = pcol7, cex = 1.5)
+  points(x, y60, pch = 15, col = pcol7, cex = 1.5)
+  legend("topleft", bty = "n", cex = 0.72,
+         legend = c("dropout 30%", "dropout 60%"),
+         pch = c(16, 15), lty = c(1, 2), col = "grey45")
+}
 par(op); dev.off()
-cat("saved fig_mise_components.png\n")
+cat("saved fig_mise_components.png (connected trend)\n")
 ###############################################################################
